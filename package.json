@@ -14,6 +14,8 @@
   "license": "MIT",
   "dependencies": {
     "angular": "^1.5.0",
+    "heroic-pixel-pusher": "git+https://github.com/bo01ean/node-pixelpusher.git",
+    "opencv": "^6.0.0",
     "serialport": "^4.0.7"
   },
   "devDependencies": {
