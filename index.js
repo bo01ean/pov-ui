@@ -72,12 +72,10 @@ var PixelInterface = function () {
   vm.PixelPusherInstance.on('discover', (controller) => {
     vm.isActive = true;
 
-    var info = ['-----------------------------------',
-                'Discovered PixelPusher on network: ',
-                controller.params.pixelpusher,
-                '-----------------------------------'];
-
-    info.forEach(line => debug(line));
+    ['-----------------------------------',
+     'Discovered PixelPusher on network: ',
+     controller.params.pixelpusher,
+     '-----------------------------------'].forEach(line => debug(line));
 
     // capture the update message sent back from the pp controller
     controller.on('update', () => {
