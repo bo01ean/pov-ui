@@ -1,7 +1,24 @@
 var SerialPort = require('serialport');
 var PixelPusher = require('heroic-pixel-pusher');
-var debug = require('boolean-debug')('info');
-var noise = require('boolean-debug')('noise');
+
+var debug = noise = teensy = function () {};
+
+if (process.env.ENVIRONMENT == 'dev') {
+  debug = require('boolean-debug')('info');
+  noise = require('boolean-debug')('noise');
+  teensy = require('boolean-debug')('teensy');
+}
+
+var fs = require('fs');
+var imageFiles;
+var currentFile = 0;
+var teensyPort;
+
+var RPM;
+var rpmReg = new RegExp("\(smoothed\): ([0-9.]+)", "g");
+var tickReg = new RegExp("TICK", "g");
+var teensyReg = new RegExp("usb.+[0-9]+");
+var teensySearchPeriod = 1000;
 
 var PixelInterface = function () {
 
@@ -11,7 +28,7 @@ var PixelInterface = function () {
   vm.PixelPusherInstance = new PixelPusher(); // will start listener.
 
   vm.UPDATE_FREQUENCY_MILLIS = 100;
-  vm.PIXELS_PER_STRIP = 1;
+  vm.PIXELS_PER_STRIP = 360;
   vm.strip = new vm.PixelStrip(0, vm.PIXELS_PER_STRIP);
   vm.exec = function () {}; // NOP
   vm.timer = null;
@@ -23,6 +40,7 @@ var PixelInterface = function () {
       vm.resetTimer();
     }
   };
+
   vm.updateExecutable = function (exec) {
     if (typeof exec == 'function') {
       debug('Updating exec');
@@ -32,16 +50,16 @@ var PixelInterface = function () {
   }
 
   vm.resetTimer = function () {
-    if (vm.timer !== null) {
+    if (!!vm.timer) {
       debug('Killing timer');
       clearTimeout(vm.timer);
+      if (vm.isActive) {
+        debug('Restarting loop');
+        vm.timer = setInterval(function() {
+          vm.exec();
+        }, vm.UPDATE_FREQUENCY_MILLIS);
+      }
     }
-
-    debug('Restarting loop');
-    vm.timer = setInterval(function() {
-      vm.exec();
-    }, vm.UPDATE_FREQUENCY_MILLIS);
-
   }
 
   vm.updateStrip = function (pixels) {
@@ -49,7 +67,10 @@ var PixelInterface = function () {
     vm.strip = new vm.PixelStrip(0, vm.PIXELS_PER_STRIP);
   }
 
+  vm.isActive = false;
+
   vm.PixelPusherInstance.on('discover', (controller) => {
+    vm.isActive = true;
 
     var info = ['-----------------------------------',
                 'Discovered PixelPusher on network: ',
@@ -63,7 +84,7 @@ var PixelInterface = function () {
       noise({ updatePeriod: this.params.pixelpusher.updatePeriod, deltaSequence: this.params.pixelpusher.deltaSequence, powerTotal: this.params.pixelpusher.powerTotal });
     }).on('timeout', () => {
       debug('TIMEOUT : PixelPusher at address [' + controller.params.ipAddress + '] with MAC (' + controller.params.macAddress + ') has timed out. Awaiting re-discovery....');
-      if (!!vm.timer) clearInterval(timer);
+      if (!!vm.timer) clearInterval(vm.timer);
     });
 
     var NUM_STRIPS = controller.params.pixelpusher.numberStrips;
@@ -82,29 +103,19 @@ var PixelInterface = function () {
     }, vm.UPDATE_FREQUENCY_MILLIS);
 
   }).on('error', (err) => {
+    vm.isActive = false;
     debug('PixelPusher Error: ' + err.message);
   });
 };
-
 
 var PixelPusherInterface = new PixelInterface();
 
 function oi() { debug('executable says oi!');}
 
 PixelPusherInterface.updateExecutable(oi);
-PixelPusherInterface.updateTiming(1);
+PixelPusherInterface.updateTiming(1000);
 
 // Set the exec pattern
-
-
-var fs = require('fs');
-var imageFiles;
-var currentFile = 0;
-var teensyPort;
-
-var RPM;
-var rpmReg = new RegExp("\(smoothed\): ([0-9.]+)", "g");
-var tickReg = new RegExp("TICK", "g");
 
 function loadFiles() {
   var items = fs.readdirSync('./data/');
@@ -130,26 +141,26 @@ function previousFile() {
 function pickupTeensy () {
   SerialPort.list(function (err, ports) {
     ports.forEach(function(port) {
-      if (/usb.+[0-9]+/.test(port.comName)) {
-        console.log('Found teensy:', port);
+      if (teensyReg.test(port.comName)) {
+        teensy('Found teensy:', port);
         teensyPort = new SerialPort(port.comName, {
   	       parser: SerialPort.parsers.readline('\n')
         });
         teensyPort.on('data', (data) => {
-          console.log(data);
+          teensy(data);
           var matches = rpmReg.exec(data);
           if (matches[1]) {
             RPM = matches[1];
-            console.log('\t\tRPM', RPM);
+            teensy('\t\tRPM', RPM);
           }
           matches = tickReg.exec(data);
           if (matches[1]) {
-            console.log('SYNC signal caught.', new Date());
+            teensy('SYNC signal caught.', new Date());
           }
         });
         teensyPort.on('close', () => {
           teensyPort = undefined;
-          console.log('Teensy disconnected.');
+          teensy('Teensy disconnected.');
         });
       }
     });
@@ -158,7 +169,7 @@ function pickupTeensy () {
 
 setInterval(function () {
   if (teensyPort == undefined) {
-    console.log('Looking for Teensy..');
+    teensy('Looking for Teensy..');
     pickupTeensy();
   }
-}, 1000);
+}, teensySearchPeriod);
