@@ -1,6 +1,8 @@
 var SerialPort = require('serialport');
 var PixelPusher = require('heroic-pixel-pusher');
 
+var cv = require('opencv');
+
 var debug = noise = teensy = function () {};
 
 if (process.env.ENVIRONMENT == 'dev') {
@@ -10,7 +12,7 @@ if (process.env.ENVIRONMENT == 'dev') {
 }
 
 var fs = require('fs');
-var imageFiles;
+var imageFiles = [];
 var currentFile = 0;
 var teensyPort;
 
@@ -30,8 +32,8 @@ var PixelInterface = function () {
   vm.UPDATE_FREQUENCY_MILLIS = 6;
   vm.PIXELS_PER_STRIP = 360;
   vm.exec = function () { return function () {} }; // NOP CLOSURE
-  vm.timer;
 
+  vm.timer;
   vm.controller;
 
   vm.updateTiming = function (timing) {
@@ -81,6 +83,7 @@ var PixelInterface = function () {
           strip.getPixel(i).setColor(255, 0, 0, (j / waveWidth));
         });
       }
+
       strips.forEach(function (strip) {
         strip.getRandomPixel().setColor(0,0,255, 0.1);
       });
@@ -93,11 +96,6 @@ var PixelInterface = function () {
 
       wavePosition = (wavePosition + 1) % waveHeight;
     }
-  }
-
-  vm.updateStrip = function (pixels) {
-    vm.PIXELS_PER_STRIP = pixels;
-    vm.strip = new vm.PixelStrip(0, vm.PIXELS_PER_STRIP);
   }
 
   vm.isActive = false;
@@ -146,18 +144,21 @@ var PixelInterface = function () {
 var PixelPusherInterface = new PixelInterface();
 //PixelPusherInterface.updateExecutable(oi);
 //PixelPusherInterface.updateTiming(100);
+loadFiles();
+nextFile();
+loadFileToMatrix();
 
 // Set the exec pattern
 
 function loadFiles() {
-  var items = fs.readdirSync('./data/');
-  console.log(items);
-  imageFiles = items.filter(item => {
+  items = fs.readdirSync('./data/');
+  items = items.filter(item => {
     return /\.(jpg|jpeg|png)$/i.test(item);
   });
-  imageFiles.forEach( (item, i) => {
-    items[i] = './data/' + items[i];
+  items.forEach( (item, i) => {
+    imageFiles[i] = './data/' + items[i];
   });
+  currentFile = -1;
 }
 
 function nextFile() {
@@ -168,6 +169,14 @@ function nextFile() {
 function previousFile() {
   currentFile--;
   currentFile = (currentFile < 0) ? imageFiles.length : currentFile;
+}
+
+function loadFileToMatrix() {
+  debug(imageFiles[currentFile]);
+  cv.readImage(imageFiles[currentFile], function(err, mat){
+    console.log(mat.row(0).r);
+  });
+
 }
 
 function pickupTeensy () {
