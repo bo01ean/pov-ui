@@ -27,11 +27,12 @@ var PixelInterface = function () {
   vm.PixelStrip = PixelPusher.PixelStrip;
   vm.PixelPusherInstance = new PixelPusher(); // will start listener.
 
-  vm.UPDATE_FREQUENCY_MILLIS = 100;
+  vm.UPDATE_FREQUENCY_MILLIS = 6;
   vm.PIXELS_PER_STRIP = 360;
-  vm.strip = new vm.PixelStrip(0, vm.PIXELS_PER_STRIP);
-  vm.exec = function () {}; // NOP
-  vm.timer = null;
+  vm.exec = function () { return function () {} }; // NOP CLOSURE
+  vm.timer;
+
+  vm.controller;
 
   vm.updateTiming = function (timing) {
     if (typeof timing == 'number') {
@@ -62,6 +63,38 @@ var PixelInterface = function () {
     }
   }
 
+  vm.waveRider = function(strips) {
+    var waveHeight = vm.PIXELS_PER_STRIP/2;
+    var waveWidth = 2;
+    var wavePosition = 0;
+    return function innerRider() {
+      var startIdx = waveHeight+wavePosition;
+      for (var i = startIdx, j = waveWidth; i < vm.PIXELS_PER_STRIP &&  i > waveHeight && j > 0; i--, j--) {
+          strips.forEach(function (strip) {
+            strip.getPixel(i).setColor(0, 255, 0, (j / waveWidth));
+          });
+      }
+
+      var startIdx = waveHeight-wavePosition;
+      for (var i = startIdx, j = waveWidth; i > 0 &&  i < waveHeight && j > 0; i++, j--) {
+        strips.forEach(function (strip) {
+          strip.getPixel(i).setColor(255, 0, 0, (j / waveWidth));
+        });
+      }
+      strips.forEach(function (strip) {
+        strip.getRandomPixel().setColor(0,0,255, 0.1);
+      });
+      // vm.controller.refresh(strips.map(function (strip) { return strip.getStripData();}));
+      vm.controller.emit('data', strips.map(function (strip) { return strip.getStripData();}));
+
+      strips.forEach(function (strip) {
+        strip.clear();
+      });
+
+      wavePosition = (wavePosition + 1) % waveHeight;
+    }
+  }
+
   vm.updateStrip = function (pixels) {
     vm.PIXELS_PER_STRIP = pixels;
     vm.strip = new vm.PixelStrip(0, vm.PIXELS_PER_STRIP);
@@ -70,6 +103,8 @@ var PixelInterface = function () {
   vm.isActive = false;
 
   vm.PixelPusherInstance.on('discover', (controller) => {
+
+    vm.controller = controller;
     vm.isActive = true;
 
     ['-----------------------------------',
@@ -79,22 +114,23 @@ var PixelInterface = function () {
 
     // capture the update message sent back from the pp controller
     controller.on('update', () => {
-      noise({ updatePeriod: this.params.pixelpusher.updatePeriod, deltaSequence: this.params.pixelpusher.deltaSequence, powerTotal: this.params.pixelpusher.powerTotal });
+      noise({ updatePeriod: controller.params.pixelpusher.updatePeriod, deltaSequence: controller.params.pixelpusher.deltaSequence, powerTotal: controller.params.pixelpusher.powerTotal });
     }).on('timeout', () => {
       debug('TIMEOUT : PixelPusher at address [' + controller.params.ipAddress + '] with MAC (' + controller.params.macAddress + ') has timed out. Awaiting re-discovery....');
       if (!!vm.timer) clearInterval(vm.timer);
+      vm.isActive = false;
+      vm.controller = null;
     });
 
-    var NUM_STRIPS = controller.params.pixelpusher.numberStrips;
-    var STRIPS_PER_PACKET = controller.params.pixelpusher.stripsPerPkt;
-    var NUM_PACKETS_PER_UPDATE = NUM_STRIPS/STRIPS_PER_PACKET;
+    var stripsArray = [];
+    for (var i = 0; i < controller.params.pixelpusher.numberStrips; i++) {
+      stripsArray.push(new vm.PixelStrip(i, vm.PIXELS_PER_STRIP));
+    }
+    //var STRIPS_PER_PACKET = controller.params.pixelpusher.stripsPerPkt;
+    //var NUM_PACKETS_PER_UPDATE = NUM_STRIPS/STRIPS_PER_PACKET;
     vm.PIXELS_PER_STRIP = controller.params.pixelpusher.pixelsPerStrip;
 
-    var waveHeight = vm.PIXELS_PER_STRIP/2;
-    var waveWidth = 2;
-    var wavePosition = 0;
-    vm.strip = new vm.PixelStrip(0, vm.PIXELS_PER_STRIP);
-
+    vm.exec = vm.waveRider(stripsArray); // returns closure
 
     vm.timer = setInterval(function() {
       vm.exec();
@@ -102,16 +138,14 @@ var PixelInterface = function () {
 
   }).on('error', (err) => {
     vm.isActive = false;
+    vm.controller = null;
     debug('PixelPusher Error: ' + err.message);
   });
 };
 
 var PixelPusherInterface = new PixelInterface();
-
-function oi() { debug('executable says oi!');}
-
-PixelPusherInterface.updateExecutable(oi);
-PixelPusherInterface.updateTiming(1000);
+//PixelPusherInterface.updateExecutable(oi);
+//PixelPusherInterface.updateTiming(100);
 
 // Set the exec pattern
 
@@ -142,7 +176,7 @@ function pickupTeensy () {
       if (teensyReg.test(port.comName)) {
         teensy('Found teensy:', port);
         teensyPort = new SerialPort(port.comName, {
-  	       parser: SerialPort.parsers.readline('\n')
+  	      parser: SerialPort.parsers.readline('\n')
         });
         teensyPort.on('data', (data) => {
           teensy(data);

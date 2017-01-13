@@ -9,7 +9,7 @@
     "test": "karma start",
     "test-watch": "karma start --auto-watch --no-single-run",
     "start": "npm run server",
-    "dev": "ENVIRONMENT=dev DEBUG=info,teensy nodemon index.js",
+    "dev": "ENVIRONMENT=dev DEBUG=info nodemon index.js",
     "live": "ENVIRONMENT=live DEBUG=info,teensy nodemon index.js"
   },
   "author": "Nathan Trujillo",
