@@ -16,7 +16,7 @@
   "license": "MIT",
   "dependencies": {
     "angular": "^1.5.0",
-    "boolean-debug": "github:bo01ean/boolean-debug",
+    "ndebug": "github:bo01ean/ndebug",
     "get-pixels": "^3.3.0",
     "heroic-pixel-pusher": "git+https://github.com/bo01ean/node-pixelpusher.git",
     "opencv": "git+https://github.com/peterbraden/node-opencv.git",
