@@ -6,9 +6,9 @@ var fs = require('fs');
 var debug = noise = teensy = function () {};
 
 if (process.env.ENVIRONMENT == 'dev') {
-  debug = require('boolean-debug')('info');
-  noise = require('boolean-debug')('noise');
-  teensy = require('boolean-debug')('teensy');
+  debug = require('ndebug')('info');
+  noise = require('ndebug')('noise');
+  teensy = require('ndebug')('teensy');
 }
 
 var imageFiles = [];
