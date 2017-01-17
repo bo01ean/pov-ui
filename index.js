@@ -88,7 +88,7 @@ var PixelInterface = function () {
 
   vm.waveRider = function(strips) {
     var waveWidth = 2;
-    var waveHeight = vm.PIXELS_PER_STRIP/waveWidth;
+    var waveHeight = vm.PIXELS_PER_STRIP / waveWidth;
     var wavePosition = 0;
     var startIdx;
     debug('init: waveRider');
@@ -97,14 +97,14 @@ var PixelInterface = function () {
       startIdx = waveHeight + wavePosition;
       for (var i = startIdx, j = waveWidth; i < vm.PIXELS_PER_STRIP &&  i > waveHeight && j > 0; i--, j--) {
           strips.forEach(function (strip) {
-            strip.getPixel(i).setColor(255, 0, 255, (j / waveWidth) / 2.0);
+            strip.getPixel(i).setColor(255, 0, 255, (j / waveWidth) / 1.0);
           });
       }
 
       startIdx = waveHeight - wavePosition;
       for (var i = startIdx, j = waveWidth; i > 0 &&  i < waveHeight && j > 0; i++, j--) {
         strips.forEach(function (strip) {
-          strip.getPixel(i).setColor(255, 0, 255, (j / waveWidth) / 2.0);
+          strip.getPixel(i).setColor(255, 0, 255, (j / waveWidth) / 1.0);
         });
       }
 
