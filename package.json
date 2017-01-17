@@ -10,16 +10,17 @@
     "test-watch": "karma start --auto-watch --no-single-run",
     "start": "npm run server",
     "dev": "ENVIRONMENT=dev DEBUG=info nodemon index.js",
-    "live": "ENVIRONMENT=live DEBUG=info,teensy nodemon index.js"
+    "live": "ENVIRONMENT=live DEBUG=teensy nodemon index.js"
   },
   "author": "Nathan Trujillo",
   "license": "MIT",
   "dependencies": {
     "angular": "^1.5.0",
-    "ndebug": "github:bo01ean/ndebug",
     "get-pixels": "^3.3.0",
     "heroic-pixel-pusher": "git+https://github.com/bo01ean/node-pixelpusher.git",
+    "ndebug": "github:bo01ean/ndebug",
     "opencv": "git+https://github.com/peterbraden/node-opencv.git",
+    "q": "^1.4.1",
     "serialport": "^4.0.7"
   },
   "devDependencies": {
