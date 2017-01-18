@@ -256,9 +256,10 @@ function getNDColumns(pixels) {
 
 function loadFile() {
   var deferred = q.defer();
-  debug('imageFiles[currentFile]', imageFiles[currentFile]);
+  debug('Working on:', imageFiles[currentFile]);
   var resized = imageFiles[currentFile].replace(/data\//g, 'data/resized/').replace(/\.png/g, '.jpg');
   gm(imageFiles[currentFile])
+    .quality(100)
     .resize(360, 360)
     .write(resized, function (err) {
       if (!err) {
