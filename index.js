@@ -3,6 +3,7 @@ var PixelPusher = require('heroic-pixel-pusher');
 var getPixels = require('get-pixels');
 var fs = require('fs');
 var q = require('q');
+var gm = require('gm');
 
 var files;
 var debug;
@@ -35,11 +36,10 @@ var imageChangePeriod = 15000;
 var imageColumns = [];
 var stripsArray = [];
 
-
 readFilesFromDir();
 nextFile();
-loadFile().then(() => {
-  debug('loadFile() ready');
+loadFile().then(img => {
+  debug(`loadFile() ${img} ready`);
 });
 
 
@@ -141,16 +141,19 @@ var PixelInterface = function () {
         strips.forEach(function (strip, stripIndex) {
           // 0.0 = 255
           // 1.0 = 1
-          //debug('pixel', i, 'strip', stripIndex, imageColumns[columnIter][i][0], imageColumns[columnIter][i][1], imageColumns[columnIter][i][2]);
-          debug(i, imageColumns[columnIter][i],
+          debug('pixel', i, 'strip', stripIndex, imageColumns[columnIter][i][0], imageColumns[columnIter][i][1], imageColumns[columnIter][i][2] / 255);
+          debug(
+            i,
+            imageColumns[columnIter][i],
             dec2bin(imageColumns[columnIter][i][3]),
-            dec2bin(imageColumns[columnIter][i][3]).replace(/./g,x=>x^1));
-          /*strip.getPixel(i).setColor(
+            dec2bin(imageColumns[columnIter][i][3]).replace(/./g,x=>x^1)
+          );
+          strip.getPixel(i).setColor(
             imageColumns[columnIter][i][0],
             imageColumns[columnIter][i][1],
-            imageColumns[columnIter][i][2],
-            imageColumns[columnIter][i][3] / 255
-          );*/
+            imageColumns[columnIter][i][2]//,
+            //imageColumns[columnIter][i][3] / 255
+          );
         });
       }
 
@@ -198,8 +201,8 @@ var PixelInterface = function () {
     //var NUM_PACKETS_PER_UPDATE = NUM_STRIPS/STRIPS_PER_PACKET;
     vm.PIXELS_PER_STRIP = controller.params.pixelpusher.pixelsPerStrip;
 
-//    vm.exec = vm.waveRider(stripsArray); // returns closure
-    vm.exec = vm.writeImage(stripsArray);
+    vm.exec = vm.waveRider(stripsArray); // returns closure
+//    vm.exec = vm.writeImage(stripsArray);
 
     vm.timer = setInterval(function() {
       vm.exec();
@@ -254,9 +257,19 @@ function getNDColumns(pixels) {
 function loadFile() {
   var deferred = q.defer();
   debug('imageFiles[currentFile]', imageFiles[currentFile]);
-  getPixels(imageFiles[currentFile], function(err, pixels) {
-    getNDColumns(pixels);
-    deferred.resolve();
+  var resized = imageFiles[currentFile].replace(/data\//g, 'data/resized/').replace(/\.png/g, '.jpg');
+  gm(imageFiles[currentFile])
+    .resize(360, 360)
+    .write(resized, function (err) {
+      if (!err) {
+        debug('done');
+        getPixels(resized, function(err, pixels) {
+          getNDColumns(pixels);
+          deferred.resolve(resized);
+        });
+      } else {
+        console.log(err);
+      }
   });
   return deferred.promise;
 }
@@ -296,10 +309,10 @@ function dec2bin(dec){
 
 setInterval(function () {
   //readFilesFromDir();
-  //nextFile();
-  //loadFile().then(() => {
-  //  debug('Image ready.');
-  //});
+  nextFile();
+  loadFile().then(() => {
+    debug('Image ready.');
+  });
 }, imageChangePeriod);
 
 setInterval(function () {
