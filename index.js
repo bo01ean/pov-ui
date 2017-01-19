@@ -26,9 +26,11 @@ var currentFile = 0;
 var teensyPort;
 
 var RPM;
-var rpmReg = new RegExp("\(smoothed\): ([0-9.]+)", "g");
-var tickReg = new RegExp("TICK", "g");
-var teensyReg = new RegExp("usb.+[0-9]+");
+var SYNC;
+
+var rpmReg = /\(smoothed\): ([0-9.]+)/ig;
+var tickReg = /(TICK)/ig;
+var teensyReg = /usb.+[0-9]+/i;
 
 var teensySearchPeriod = 1000;
 var imageChangePeriod = 15000;
@@ -50,7 +52,7 @@ var PixelInterface = function () {
   vm.PixelStrip = PixelPusher.PixelStrip;
   vm.PixelPusherInstance = new PixelPusher(); // will start listener.
 
-  vm.UPDATE_FREQUENCY_MILLIS = 33;
+  vm.UPDATE_FREQUENCY_MILLIS = 6;
   vm.PIXELS_PER_STRIP = 360;
   vm.exec = function () { return function () {} }; // NOP CLOSURE
 
@@ -127,32 +129,17 @@ var PixelInterface = function () {
   vm.writeImage = function (strips) {
     var columnIter = 0;
     var column = [];
+    var localImageCopy = [];
     return function writeColumns () {
-
-      columnIter = (columnIter >= imageColumns.length - 1) ? 0 : columnIter += 1;
-      column = imageColumns[columnIter];
-      //debug('imageColumns[columnIter].length/2',
-      //imageColumns[columnIter].length/2, 'columnIter', columnIter, 'imageColumns.length',
-      //imageColumns.length, 'imageColumns[' + columnIter + '][0, mid, last]',  imageColumns[columnIter][0], imageColumns[columnIter][imageColumns[columnIter].length/2], imageColumns[columnIter][imageColumns[columnIter].length - 1]);
-
-//      column.forEach((col,id) => { console.log(column, col);})
+      localImageCopy = [].concat.apply(imageColumns); // get a detached copy
+      column = localImageCopy[columnIter];
 
       for (var i = 0; i < vm.PIXELS_PER_STRIP; i++) {
         strips.forEach(function (strip, stripIndex) {
-          // 0.0 = 255
-          // 1.0 = 1
-          debug('pixel', i, 'strip', stripIndex, imageColumns[columnIter][i][0], imageColumns[columnIter][i][1], imageColumns[columnIter][i][2] / 255);
-          debug(
-            i,
-            imageColumns[columnIter][i],
-            dec2bin(imageColumns[columnIter][i][3]),
-            dec2bin(imageColumns[columnIter][i][3]).replace(/./g,x=>x^1)
-          );
           strip.getPixel(i).setColor(
-            imageColumns[columnIter][i][0],
-            imageColumns[columnIter][i][1],
-            imageColumns[columnIter][i][2]//,
-            //imageColumns[columnIter][i][3] / 255
+            localImageCopy[columnIter][i][0], // R
+            localImageCopy[columnIter][i][1], // G
+            localImageCopy[columnIter][i][2] // B
           );
         });
       }
@@ -168,7 +155,8 @@ var PixelInterface = function () {
       });
 
       //debug(imageColumns[columnIter][0], imageColumns.length, columnIter);
-      columnIter = (columnIter + 1) % imageColumns.length;
+      columnIter = (columnIter >= localImageCopy.length - 1) ? 0 : columnIter += 1;
+      //columnIter = (columnIter + 1) % imageColumns.length;
     }
   }
 
@@ -275,7 +263,21 @@ function loadFile() {
   return deferred.promise;
 }
 
+function parseDataFromRing(data) {
+  var matches = rpmReg.exec(data);
+  if (matches && matches[1] != null) {
+    RPM = Number(matches[1]);
+    teensy('\t\tRPM', RPM);
+  }
+  matches = tickReg.exec(data);
+  if (matches && matches[1] != null) {
+    SYNC = new Date();
+    teensy('SYNC signal caught.', SYNC);
+  }
+}
+
 function pickupTeensy () {
+  teensy('Looking for Teensy..');
   SerialPort.list(function (err, ports) {
     ports.forEach(function(port) {
       if (teensyReg.test(port.comName)) {
@@ -285,15 +287,7 @@ function pickupTeensy () {
         });
         teensyPort.on('data', (data) => {
           teensy(data);
-          var matches = rpmReg.exec(data);
-          if (matches[1]) {
-            RPM = matches[1];
-            teensy('\t\tRPM', RPM);
-          }
-          matches = tickReg.exec(data);
-          if (matches[1]) {
-            teensy('SYNC signal caught.', new Date());
-          }
+          parseDataFromRing(data);
         });
         teensyPort.on('close', () => {
           teensyPort = undefined;
@@ -304,8 +298,8 @@ function pickupTeensy () {
   });
 }
 
-function dec2bin(dec){
-    return (dec >>> 0).toString(2);
+function dec2bin(dec) {
+  return (dec >>> 0).toString(2);
 }
 
 setInterval(function () {
@@ -318,7 +312,8 @@ setInterval(function () {
 
 setInterval(function () {
   if (teensyPort == undefined) {
-    teensy('Looking for Teensy..');
     pickupTeensy();
+//    parseDataFromRing('TARGETRPM: 100.00 GAP: -34.13 GGAP: 34.13 RPM: 134.13 (smoothed): 133 HZ: 2.24 Ascending: 1 Power: 2600.00 Voltage: 2.09 Output: 0.00');
+//    parseDataFromRing('TARGETRPM: 100.00 GAP: -34.13 GGAP: 34.13 RPM: 134.13 (smoothed): 133 HZ: 2.24 Ascending: 1 Power: 2600.00 Voltage: 2.09 Output: 0.00 TICK');
   }
 }, teensySearchPeriod);
