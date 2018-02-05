@@ -1,63 +1,68 @@
-var SerialPort = require('serialport');
-var PixelPusher = require('heroic-pixel-pusher');
-var getPixels = require('get-pixels');
-var fs = require('fs');
-var q = require('q');
-var gm = require('gm');
+const SerialPort = require('serialport');
+const PixelPusher = require('heroic-pixel-pusher');
+const getPixels = require('get-pixels');
+const fs = require('fs');
+const q = require('q');
+const gm = require('gm');
 
-var files;
-var debug;
-var noise;
-var teensy;
-
-[files, debug, noise, teensy].forEach((debugMode) => {
-  debugMode = function(){};
+['files', 'debug', 'noise', 'teensy'].forEach((debugMode) => {
+  if (process.env.ENVIRONMENT == 'dev') {
+    console.log('Setting', debugMode);
+    global[debugMode] = require('ndebug')(debugMode);
+  } else {
+    global[debugMode] = () => {};
+  }
 });
 
-if (process.env.ENVIRONMENT == 'dev') {
-  debug = require('ndebug')('info');
-  noise = require('ndebug')('noise');
-  teensy = require('ndebug')('teensy');
-  files = require('ndebug')('files');
-}
+const imageFiles = [];
+let currentFile = 0;
+let teensyPort;
 
-var imageFiles = [];
-var currentFile = 0;
-var teensyPort;
+let RPM;
+let SYNC;
 
-var RPM;
-var SYNC;
+const rpmReg = /\(smoothed\): ([0-9.]+)/ig;
+const tickReg = /(TICK)/ig;
+const teensyReg = /usb.+[0-9]+/i;
 
-var rpmReg = /\(smoothed\): ([0-9.]+)/ig;
-var tickReg = /(TICK)/ig;
-var teensyReg = /usb.+[0-9]+/i;
+let teensySearchPeriod = 1000;
+let imageChangePeriod = 15000;
 
-var teensySearchPeriod = 1000;
-var imageChangePeriod = 15000;
+let imageColumns = [];
+let stripsArray = [];
 
-var imageColumns = [];
-var stripsArray = [];
+var server = require('http').createServer();
 
-readFilesFromDir();
-nextFile();
-loadFile().then(img => {
-  debug(`loadFile() ${img} ready`);
-});
+var io = require('socket.io')(server);
 
+server.listen(3040);
 
-var PixelInterface = function () {
+const PixelInterface = function (go) {
 
   var vm = this;
+  vm.client = {};
+  io.on('connection', function(client) {
+    vm.client = client;
+    go();
+    vm.client.on('event', function(data){
+
+    });
+    vm.client.on('disconnect', function(){
+
+    });
+  });
+
 
   vm.PixelStrip = PixelPusher.PixelStrip;
   vm.PixelPusherInstance = new PixelPusher(); // will start listener.
 
-  vm.UPDATE_FREQUENCY_MILLIS = 6;
+  vm.UPDATE_FREQUENCY_MILLIS = 30;
   vm.PIXELS_PER_STRIP = 360;
   vm.exec = function () { return function () {} }; // NOP CLOSURE
 
-  vm.timer;
+  vm.timer = null;
   vm.controller;
+  vm.isActive = false;
 
   vm.updateTiming = function (timing) {
     if (typeof timing == 'number') {
@@ -76,70 +81,75 @@ var PixelInterface = function () {
   }
 
   vm.resetTimer = function () {
-    if (!!vm.timer) {
+    if (vm.timer !== null) {
       debug('Killing timer');
       clearTimeout(vm.timer);
-      if (vm.isActive) {
-        debug('Restarting loop');
-        vm.timer = setInterval(function() {
-          vm.exec();
-        }, vm.UPDATE_FREQUENCY_MILLIS);
-      }
+      vm.timer = null;
+    }
+    if (vm.isActive) {
+      debug('Restarting loop');
+      vm.timer = setInterval(
+        vm.exec,
+        vm.UPDATE_FREQUENCY_MILLIS);
     }
   }
 
   vm.waveRider = function(strips) {
-    var waveWidth = 2;
-    var waveHeight = vm.PIXELS_PER_STRIP / waveWidth;
-    var wavePosition = 0;
-    var startIdx;
-    debug('init: waveRider');
+    let waveWidth = 2;
+    let waveHeight = vm.PIXELS_PER_STRIP / waveWidth;
+    let wavePosition = 0;
+    let startIdx;
+    debug('init: waveRider', waveWidth, waveHeight, wavePosition, startIdx);
     return function innerRider() {
-      //debug('Call:', wavePosition);
+      debug('Call:', wavePosition, vm.timer, vm.PIXELS_PER_STRIP);
+
       startIdx = waveHeight + wavePosition;
+      console.log(vm.stripsArray);
       for (var i = startIdx, j = waveWidth; i < vm.PIXELS_PER_STRIP &&  i > waveHeight && j > 0; i--, j--) {
-          strips.forEach(function (strip) {
+          vm.stripsArray.forEach(function (strip) {
+            console.log(strip);
             strip.getPixel(i).setColor(255, 0, 255, (j / waveWidth) / 1.0);
           });
       }
-
       startIdx = waveHeight - wavePosition;
       for (var i = startIdx, j = waveWidth; i > 0 &&  i < waveHeight && j > 0; i++, j--) {
-        strips.forEach(function (strip) {
+        vm.stripsArray.forEach(function (strip) {
           strip.getPixel(i).setColor(255, 0, 255, (j / waveWidth) / 1.0);
         });
       }
 
-      strips.forEach(function (strip) {
+      vm.stripsArray.forEach(function (strip) {
         strip.getRandomPixel().setColor(0,0,255, 0.1);
       });
       //vm.controller.refresh(strips.map(function (strip) { return strip.getStripData();}));
-      vm.controller.emit('data', strips.map(function (strip) { return strip.getStripData();}));
+      vm.controller.emit('data', vm.stripsArray.map(function (strip) { return strip.getStripData();}));
 
-      strips.forEach(function (strip) {
+      vm.stripsArray.forEach(function (strip) {
         strip.clear();
       });
 
       wavePosition = (wavePosition + 1) % waveHeight;
+
+      //vm.timer = setInterval(
+      // innerRider();
+        //vm.UPDATE_FREQUENCY_MILLIS);
     }
   }
 
-  vm.isActive = false;
-
   vm.writeImage = function (strips) {
-    var columnIter = 0;
-    var column = [];
-    var localImageCopy = [];
-    return function writeColumns () {
+    let columnIter = 0;
+    let column = [];
+    let localImageCopy = [];
+    return function writeColumn () {
       localImageCopy = [].concat.apply(imageColumns); // get a detached copy
       column = localImageCopy[columnIter];
 
-      for (var i = 0; i < vm.PIXELS_PER_STRIP; i++) {
+      for (var pixel = 0; pixel < vm.PIXELS_PER_STRIP; pixel++) {
         strips.forEach(function (strip, stripIndex) {
-          strip.getPixel(i).setColor(
-            localImageCopy[columnIter][i][0], // R
-            localImageCopy[columnIter][i][1], // G
-            localImageCopy[columnIter][i][2] // B
+          strip.getPixel(pixel).setColor(
+            column[pixel][0], // R
+            column[pixel][1], // G
+            column[pixel][2] // B
           );
         });
       }
@@ -154,18 +164,15 @@ var PixelInterface = function () {
         strip.clear();
       });
 
-      //debug(imageColumns[columnIter][0], imageColumns.length, columnIter);
-      columnIter = (columnIter >= localImageCopy.length - 1) ? 0 : columnIter += 1;
-      //columnIter = (columnIter + 1) % imageColumns.length;
+      columnIter = (columnIter >= localImageCopy.length - 1) ? 0 : columnIter + 1;
     }
   }
 
 
   vm.PixelPusherInstance.on('discover', (controller) => {
-
     vm.controller = controller;
     vm.isActive = true;
-
+    vm.resetTimer();
     ['-----------------------------------',
      'Discovered PixelPusher on network: ',
      controller.params.pixelpusher,
@@ -176,26 +183,20 @@ var PixelInterface = function () {
       noise({ updatePeriod: controller.params.pixelpusher.updatePeriod, deltaSequence: controller.params.pixelpusher.deltaSequence, powerTotal: controller.params.pixelpusher.powerTotal });
     }).on('timeout', () => {
       debug('TIMEOUT : PixelPusher at address [' + controller.params.ipAddress + '] with MAC (' + controller.params.macAddress + ') has timed out. Awaiting re-discovery....');
-      if (!!vm.timer) clearInterval(vm.timer);
+      if (vm.timer !== null) {
+        clearInterval(vm.timer);
+      }
       vm.isActive = false;
       vm.controller = null;
     });
 
-    stripsArray = [];
+    vm.stripsArray = [];
     for (var i = 0; i < 1; i++) {
-      stripsArray.push(new vm.PixelStrip(i, vm.PIXELS_PER_STRIP));
+      vm.stripsArray.push(new vm.PixelStrip(i, vm.PIXELS_PER_STRIP));
     }
-    //var STRIPS_PER_PACKET = controller.params.pixelpusher.stripsPerPkt;
-    //var NUM_PACKETS_PER_UPDATE = NUM_STRIPS/STRIPS_PER_PACKET;
+
     vm.PIXELS_PER_STRIP = controller.params.pixelpusher.pixelsPerStrip;
-
-    vm.exec = vm.waveRider(stripsArray); // returns closure
-//    vm.exec = vm.writeImage(stripsArray);
-
-    vm.timer = setInterval(function() {
-      vm.exec();
-    }, vm.UPDATE_FREQUENCY_MILLIS);
-
+    vm.updateExecutable(vm.waveRider(stripsArray));
   }).on('error', (err) => {
     vm.isActive = false;
     vm.controller = null;
@@ -203,9 +204,13 @@ var PixelInterface = function () {
   });
 };
 
-var PixelPusherInterface = new PixelInterface();
-//PixelPusherInterface.updateExecutable(oi);
-//PixelPusherInterface.updateTiming(100);
+var PixelPusherInterface = new PixelInterface(() => {});
+readFilesFromDir();
+nextFile();
+loadFile().then(img => {
+  debug(`loadFile() ${img} ready`);
+});
+
 currentFile = -1;
 
 // Set the exec pattern
@@ -237,8 +242,18 @@ function getNDColumns(pixels) {
   for (var col = 0; col < width; col++) {
     imageColumns[col] = [];
     for (var row = 0; row < height; row++) {
-      imageColumns[col].push([pixels.get(col, row, 0), pixels.get(col, row, 1), pixels.get(col, row, 2), pixels.get(col, row, 3)]);
+      imageColumns[col].push([
+        pixels.get(col, row, 0),
+        pixels.get(col, row, 1),
+        pixels.get(col, row, 2),
+        pixels.get(col, row, 3)]);
     }
+  }
+  // console.log(imageColumns[0]);
+  if (PixelPusherInterface.hasOwnProperty('client')
+    && PixelPusherInterface.client.hasOwnProperty('emit')) {
+      console.log('Emit Smith.');
+    PixelPusherInterface.client.emit('column', imageColumns[0]);
   }
 }
 
@@ -312,8 +327,19 @@ setInterval(function () {
 
 setInterval(function () {
   if (teensyPort == undefined) {
-    pickupTeensy();
-//    parseDataFromRing('TARGETRPM: 100.00 GAP: -34.13 GGAP: 34.13 RPM: 134.13 (smoothed): 133 HZ: 2.24 Ascending: 1 Power: 2600.00 Voltage: 2.09 Output: 0.00');
+    // pickupTeensy();
+    parseDataFromRing('TARGETRPM: 100.00 GAP: -34.13 GGAP: 34.13 RPM: 134.13 (smoothed): 133 HZ: 2.24 Ascending: 1 Power: 2600.00 Voltage: 2.09 Output: 0.00');
 //    parseDataFromRing('TARGETRPM: 100.00 GAP: -34.13 GGAP: 34.13 RPM: 134.13 (smoothed): 133 HZ: 2.24 Ascending: 1 Power: 2600.00 Voltage: 2.09 Output: 0.00 TICK');
   }
 }, teensySearchPeriod);
+
+
+
+process
+  .on('unhandledRejection', (reason, p) => {
+    console.error(reason, 'Unhandled Rejection at Promise', p);
+  })
+  .on('uncaughtException', err => {
+    console.error(err, 'Uncaught Exception thrown');
+    process.exit(1);
+  });
